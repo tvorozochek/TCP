@@ -1,32 +1,34 @@
 #include <iostream>
-#include <string>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
+struct Student
+{
+    char name[64];
+    char faculty[64];
+    int marks[4];
+};
+
+enum Scholarship
+{
+    NO = 0,
+    ORDINARY = 1,
+    HIGH = 2
+};
+
 int main()
 {
     setlocale(LC_ALL, "Russian");
 
-    WSADATA wsaData;
-    int err = WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    if (err != 0)
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
     {
-        cout << "WSAStartup failed: " << err << endl;
+        cout << "WSAStartup error\n";
         return 1;
     }
-
-    if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
-    {
-        cout << "Winsock version 2.2 not supported" << endl;
-        WSACleanup();
-        return 1;
-    }
-
-    cout << "Winsock 2.2 initialized\n";
 
     SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -35,57 +37,63 @@ int main()
     serverAddr.sin_port = htons(12345);
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) < 0)
+    if (bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
     {
-        cout << "Ошибка bind\n";
+        cout << "Bind error\n";
         return 1;
     }
 
     listen(serverSocket, SOMAXCONN);
-    cout << "Ожидание клиента...\n";
+    cout << "Сервер запущен...\n";
 
-    SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
-    cout << "Клиент подключён!\n";
-
-    char nameBuf[128];
-    char facBuf[128];
-    int marks[4]{};
-
-    recv(clientSocket, nameBuf, sizeof(nameBuf), 0);
-    recv(clientSocket, facBuf, sizeof(facBuf), 0);
-    recv(clientSocket, (char*)marks, sizeof(marks), 0);
-
-    cout << "ФИО: " << nameBuf << endl;
-    cout << "Факультет: " << facBuf << endl;
-    cout << "Оценки: ";
-    for (int i = 0; i < 4; i++) cout << marks[i] << " ";
-    cout << endl;
-
-    int sum = 0;
-    bool hasLow = false;
-
-    for (int i = 0; i < 4; i++)
+    while (true)
     {
-        sum += marks[i];
-        if (marks[i] <= 3) hasLow = true;
+        SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
+        if (clientSocket == INVALID_SOCKET)
+            continue;
+
+        cout << "Клиент подключился\n";
+
+        while (true)
+        {
+            Student st;
+            int received = recv(clientSocket, (char*)&st, sizeof(st), 0);
+            if (received <= 0)
+                break;
+
+            cout << "Запрос:\n";
+            cout << "ФИО: " << st.name << endl;
+            cout << "Факультет: " << st.faculty << endl;
+            cout << "Оценки: ";
+            for (int i = 0; i < 4; i++)
+                cout << st.marks[i] << " ";
+            cout << endl;
+
+            bool hasLow = false;
+            int sum = 0;
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (st.marks[i] <= 3)
+                    hasLow = true;
+                sum += st.marks[i];
+            }
+
+            Scholarship result;
+            if (hasLow)
+                result = NO;
+            else if (sum == 20)
+                result = HIGH;
+            else
+                result = ORDINARY;
+
+            send(clientSocket, (char*)&result, sizeof(result), 0);
+        }
+
+        cout << "Клиент отключился\n";
+        closesocket(clientSocket);
     }
 
-    int result = 0;
-    if (hasLow) result = 0;
-    else if (sum == 20) result = 2;
-    else result = 1;
-
-    string response;
-
-    if (result == 0) response = "Степендия: нет";
-    if (result == 1) response = "Степендия: обычная";
-    if (result == 2) response = "Степендия: повышенная";
-
-    send(clientSocket, response.c_str(), response.size() + 1, 0);
-
-    closesocket(clientSocket);
     closesocket(serverSocket);
     WSACleanup();
-
-    return 0;
 }
